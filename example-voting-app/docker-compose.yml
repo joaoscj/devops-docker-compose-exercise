@@ -1,0 +1,102 @@
+services:
+
+  # Define o nome do Serviço para o aplicativo Web front-end em Python que permite votar entre duas opções
+  vote:
+    # Define o nome do Container
+    container_name: vote
+    # Constrói a imagem para o Container com o Dockerfile que está no Diretório vote
+    build:
+      context: ./vote
+      target: dev
+    # Informa a dependência da execução desse serviço com o Serviço do Redis
+    depends_on:
+      - redis
+    # Sempre reinicia o Container caso ocorra algum problema (tenta indefinidamente)
+    restart: always
+    # Monta um Volume Anônimo no diretório vote, apontando para a pasta do Container: /usr/local/app
+    volumes:
+     - ./vote:/usr/local/app
+    # Expõem a porta 80 do Container, mapeando para a Porta 5000 do Host (onde está instalado o Docker)
+    ports:
+      - "5000:80"
+    # Informa que o Serviço utiliza as duas Redes criadas: front-tier e back-tier
+    networks:
+      - front-tier
+      - back-tier
+
+  # Define o nome do Serviço para o aplicativo Web Node.js que mostra os resultados da votação em tempo real
+  result:
+    container_name: result
+    # Constrói a imagem para o Container com o Dockerfile que está no Diretório result
+    build: ./result
+    # use nodemon rather than node for local dev
+    entrypoint: nodemon --inspect=0.0.0.0 server.js
+    depends_on:
+      - db
+    restart: always
+    # Monta um Volume Anônimo no diretório result, apontando para a pasta do Container: /usr/local/app
+    volumes:
+      - ./result:/usr/local/app
+    ports:
+      - "5001:80"
+      - "127.0.0.1:9229:9229"
+    networks:
+      - front-tier
+      - back-tier
+
+  # Define o nome do Serviço para a API .NET que consome votos e os armazena a longo prazo
+  worker:
+    container_name: worker
+    # Constrói a imagem para o Container com o Dockerfile que está no Diretório worker
+    build:
+      context: ./worker
+    depends_on:
+      - redis
+      - db
+    restart: always
+    networks:
+      - back-tier
+
+  # Define o nome do Serviço para o Banco Redis que coleta os votos (utilizado como fila)
+  redis:
+    container_name: redis
+    # Realiza o Pull da imagem Pública do Redis do Docker Hub 
+    image: redis:alpine
+    restart: always
+    networks:
+      - back-tier
+
+  # Define o nome do Serviço para o Banco de Dados Postgres
+  db:
+    container_name: postgres
+    # Realiza o Pull da imagem Pública do Postgres do Docker Hub
+    image: postgres:15-alpine
+    restart: always
+    # Define as variáveis de ambiente para acesso ao Banco Postgres 
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    #  Monta um Volume Nomeado, apontando para a pasta do Container: /var/lib/postgresql/data
+    volumes:
+      - "db-data:/var/lib/postgresql/data"
+    networks:
+      - back-tier
+
+  # this service runs once to seed the database with votes
+  # it won't run unless you specify the "seed" profile
+  # docker compose --profile seed up -d
+  seed:
+    build: ./seed-data
+    profiles: ["seed"]
+    depends_on:
+      - vote
+    networks:
+      - front-tier
+    restart: "no"
+
+volumes:
+  db-data:
+
+networks:
+  front-tier:
+  back-tier:
